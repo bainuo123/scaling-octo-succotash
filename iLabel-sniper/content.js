@@ -1,5 +1,10 @@
 console.log('[Content] ✅ Content Script 已注入!');
 
+if (window.__ILABEL_SNIPER_RUNNING__) {
+    console.warn('[Content] ⚠️ 已有实例在运行，跳过重复注入');
+} else {
+    window.__ILABEL_SNIPER_RUNNING__ = true;
+
 (function () {
     let polling = false;
     let hidden = false;
@@ -7,9 +12,15 @@ console.log('[Content] ✅ Content Script 已注入!');
     let successCount = 0;
     let requestCount = 0;
     let failureCount = 0;
-    let abortController = null;
-
-    const POLL_INTERVAL = 150;
+    let waitingRefreshAfterHit = false;
+    let answeringTask = false;
+    let manuallyStarted = false;
+    let lastRefreshClickAt = 0;
+    const POLL_INTERVAL = 180;
+    const REFRESH_CLICK_INTERVAL = 2500;
+    const RATE_LIMIT_COOLDOWN = 1200;
+    const MAX_BACKOFF = 3000;
+    let dynamicDelay = POLL_INTERVAL;
 
     function extractMissionIdFromUrl() {
         const match = window.location.href.match(/mission\/(\d+)/);
@@ -145,19 +156,34 @@ console.log('[Content] ✅ Content Script 已注入!');
         });
     }
 
+    function clickRefreshButton() {
+        const now = Date.now();
+        if (now - lastRefreshClickAt < REFRESH_CLICK_INTERVAL) {
+            return false;
+        }
+
+        const buttons = [...document.querySelectorAll('button')];
+        const refreshBtn = buttons.find(btn => btn.innerText && btn.innerText.trim() === '刷新');
+        if (!refreshBtn || refreshBtn.disabled) {
+            return false;
+        }
+        lastRefreshClickAt = now;
+        refreshBtn.click();
+        console.log('[Content] 🔄 已点击页面刷新按钮');
+        return true;
+    }
+
     async function fetchTask() {
         try {
+            if (waitingRefreshAfterHit || answeringTask) {
+                return { gotTask: false, rateLimited: false };
+            }
+
             // 做题状态暂停抢题
             if (hasSubmitButton()) {
                 updatePanel('做题中');
-                return;
+                return { gotTask: false, rateLimited: false };
             }
-
-            if (abortController) {
-                abortController.abort();
-            }
-
-            abortController = new AbortController();
 
             requestCount++;
             console.log('[Content] 📤 请求 #' + requestCount);
@@ -179,7 +205,6 @@ console.log('[Content] ✅ Content Script 已注入!');
                 method: 'GET',
                 credentials: 'include',
                 cache: 'no-store',
-                signal: abortController.signal,
                 headers: {
                     'pragma': 'no-cache',
                     'cache-control': 'no-cache'
@@ -190,6 +215,19 @@ console.log('[Content] ✅ Content Script 已注入!');
 
             const json = await res.json();
             console.log('[Content] 📋 数据:', json);
+
+            if (res.status === 429 || json?.status === 'error') {
+                const isRateLimited = res.status === 429 || `${json?.msg || ''}`.includes('ratelimit');
+                if (isRateLimited) {
+                    failureCount++;
+                    dynamicDelay = Math.min(Math.max(RATE_LIMIT_COOLDOWN, Math.floor(dynamicDelay * 1.35)), MAX_BACKOFF);
+                    updatePanel(`⏸️ 限流(${Math.ceil(dynamicDelay / 1000)}s)`);
+                    saveStats();
+                    return { gotTask: false, rateLimited: true };
+                }
+            }
+
+            dynamicDelay = Math.max(POLL_INTERVAL, dynamicDelay - 120);
 
             const list = json?.data || [];
 
@@ -202,20 +240,26 @@ console.log('[Content] ✅ Content Script 已注入!');
                     console.log('[Content] ✅ 成功! #' + successCount);
                     updatePanel('✅ 抢到题');
                     saveStats();
-                    return;
+
+                    waitingRefreshAfterHit = true;
+
+                    return { gotTask: true, rateLimited: false };
                 }
             }
 
             updatePanel('⏳ 等待中');
             saveStats();
+            return { gotTask: false, rateLimited: false };
 
         } catch (e) {
             if (e.name !== 'AbortError') {
                 failureCount++;
+                dynamicDelay = Math.min(Math.floor(dynamicDelay * 1.2), MAX_BACKOFF);
                 console.error('[Content] 💥', e);
                 updatePanel('❌ 错误');
                 saveStats();
             }
+            return { gotTask: false, rateLimited: false };
         }
     }
 
@@ -240,14 +284,43 @@ console.log('[Content] ✅ Content Script 已注入!');
             }
 
             if (polling) {
-                await fetchTask();
-                updateRunningTime();
-                updatePanel('▶️ 抢题中');
+                if (!manuallyStarted) {
+                    updatePanel('⏸️ 待手动开启');
+                } else if (waitingRefreshAfterHit) {
+                    if (clickRefreshButton()) {
+                        updatePanel('🔄 刷新题目中');
+                    } else {
+                        updatePanel('⏳ 等待刷新按钮');
+                    }
+
+                    if (hasSubmitButton()) {
+                        waitingRefreshAfterHit = false;
+                        answeringTask = true;
+                        updatePanel('📝 题目已加载');
+                    }
+                } else if (answeringTask) {
+                    if (hasSubmitButton()) {
+                        updatePanel('做题中');
+                    } else {
+                        answeringTask = false;
+                        updatePanel('▶️ 继续抢题');
+                    }
+                } else {
+                    const result = await fetchTask();
+                    updateRunningTime();
+                    if (!result.gotTask && !result.rateLimited) {
+                        updatePanel('▶️ 抢题中');
+                    }
+                }
             } else {
+                dynamicDelay = POLL_INTERVAL;
+                waitingRefreshAfterHit = false;
+                answeringTask = false;
+                manuallyStarted = false;
                 updatePanel('⏹️ 已停止');
             }
 
-            await new Promise(r => setTimeout(r, POLL_INTERVAL));
+            await new Promise(r => setTimeout(r, dynamicDelay));
         }
     }
 
@@ -267,6 +340,11 @@ console.log('[Content] ✅ Content Script 已注入!');
         console.log('[Content] 📨', message);
         if (message.type === 'TOGGLE_STATE') {
             polling = message.enabled;
+            manuallyStarted = message.enabled;
+            if (!message.enabled) {
+                waitingRefreshAfterHit = false;
+                answeringTask = false;
+            }
             updatePanel(polling ? '▶️ 抢题中' : '⏹️ 已停止');
             sendResponse({ success: true });
         }
@@ -280,15 +358,17 @@ console.log('[Content] ✅ Content Script 已注入!');
     const pageKey = getPageKey();
     chrome.storage.local.get([pageKey], (result) => {
         const pageConfig = result[pageKey] || {};
-        polling = pageConfig.enabled || false;
+        polling = false;
+        manuallyStarted = false;
         requestCount = pageConfig.requestCount || 0;
         successCount = pageConfig.successCount || 0;
         failureCount = pageConfig.failureCount || 0;
 
         console.log('[Content] 📋', { polling, requestCount, successCount, failureCount });
 
-        updatePanel(polling ? '▶️ 抢题中' : '⏹️ 已停止');
+        updatePanel('⏸️ 待手动开启');
         loop();
     });
 
 })();
+}
