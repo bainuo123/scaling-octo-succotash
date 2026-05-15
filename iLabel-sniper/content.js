@@ -180,41 +180,56 @@ if (window.__ILABEL_SNIPER_RUNNING__) {
 
     async function loop() {
         while (true) {
-
+            const key = getPageKey();
             const cfg = await new Promise(r =>
-                chrome.storage.local.get([getPageKey()], d => r(d[getPageKey()] || {}))
+                chrome.storage.local.get([key], d => r(d[key] || {}))
             );
 
             polling = cfg.enabled || false;
 
-            if (polling) {
+            // 修复点：如果 storage 里开启了，就视为手动已开启
+            // 解决刷新页面后变量丢失的问题
+            if (polling) manuallyStarted = true; 
 
-                if (!manuallyStarted) {
-                    updatePanel('⏸️ 待手动开启');
+            if (polling && manuallyStarted) {
+                const hasSubmit = hasSubmitButton();
+                const refreshBtnExists = [...document.querySelectorAll('button')]
+                    .some(b => b.innerText && b.innerText.trim() === '刷新');
 
-                } else if (answeringTask) {
-
-                    if (hasSubmitButton()) {
-                        updatePanel('做题中');
-                    } else {
+                if (answeringTask || hasSubmit) {
+                    // 场景：正在做题
+                    if (hasSubmit) {
+                        answeringTask = true; 
+                        updatePanel('📝 做题中');
+                        dynamicDelay = 1000; // 做题时没必要刷那么快
+                    } else if (refreshBtnExists) {
+                        // 场景：刚提交完，看到刷新按钮了
                         answeringTask = false;
-                        updatePanel('▶️ 抢题中');
+                        waitingRefreshAfterHit = false;
+                        updatePanel('✅ 提交成功，准备下单');
+                        dynamicDelay = POLL_INTERVAL;
+                    } else {
+                        updatePanel('⏳ 等待页面响应');
+                        dynamicDelay = 500;
                     }
-
                 } else {
-                    const r = await fetchTask();
-
-                    if (!r.gotTask) {
+                    // 核心修复点：添加抢题入口！
+                    const result = await fetchTask();
+                    
+                    if (result && result.gotTask) {
+                        // 如果抢到了，fetchTask 里已经写了 location.replace
+                        // 这里的代码可能不会被执行，因为页面正在跳转
+                        updatePanel('🚀 抢到了！刷新中');
+                    } else if (result && result.rateLimited) {
+                        // 限流状态，fetchTask 已经调整了 dynamicDelay
+                    } else {
                         updatePanel('▶️ 抢题中');
+                        dynamicDelay = POLL_INTERVAL;
                     }
                 }
-
             } else {
-                dynamicDelay = POLL_INTERVAL;
-                waitingRefreshAfterHit = false;
-                answeringTask = false;
-                manuallyStarted = false;
-                updatePanel('⏹️ 已停止');
+                updatePanel(polling ? '⏸️ 待手动开启' : '⏹️ 已停止');
+                dynamicDelay = 1000;
             }
 
             await new Promise(r => setTimeout(r, dynamicDelay));
