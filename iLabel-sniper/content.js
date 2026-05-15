@@ -9,17 +9,23 @@ if (window.__ILABEL_SNIPER_RUNNING__) {
     let polling = false;
     let hidden = false;
     let lastTaskId = null;
+
     let successCount = 0;
     let requestCount = 0;
     let failureCount = 0;
+
     let waitingRefreshAfterHit = false;
     let answeringTask = false;
     let manuallyStarted = false;
+
     let lastRefreshClickAt = 0;
+
     const POLL_INTERVAL = 180;
     const REFRESH_CLICK_INTERVAL = 2500;
+
     const RATE_LIMIT_COOLDOWN = 1200;
     const MAX_BACKOFF = 3000;
+
     let dynamicDelay = POLL_INTERVAL;
 
     function extractMissionIdFromUrl() {
@@ -41,9 +47,7 @@ if (window.__ILABEL_SNIPER_RUNNING__) {
 
     function createPanel() {
         setTimeout(() => {
-            if (document.getElementById('mini-sniper-panel')) {
-                return;
-            }
+            if (document.getElementById('mini-sniper-panel')) return;
 
             const panel = document.createElement('div');
             panel.id = 'mini-sniper-panel';
@@ -63,36 +67,20 @@ if (window.__ILABEL_SNIPER_RUNNING__) {
             `;
 
             panel.innerHTML = `
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-                    <strong style="font-size: 14px;">iLabel Sniper</strong>
-                    <span style="font-size: 10px; color: #999;">O键切换</span>
+                <div style="display:flex;justify-content:space-between;margin-bottom:12px;">
+                    <strong>iLabel Sniper</strong>
+                    <span style="font-size:10px;color:#999;">O键切换</span>
                 </div>
-                <div style="border-top: 1px solid #f0f0f0; padding-top: 12px;">
-                    <div style="margin-bottom: 8px; display: flex; justify-content: space-between;">
-                        <span style="color: #666;">状态:</span>
-                        <span id="status-text" style="font-weight: bold; color: #1890ff;">初始化</span>
-                    </div>
-                    <div style="margin-bottom: 8px; display: flex; justify-content: space-between;">
-                        <span style="color: #666;">请求:</span>
-                        <span id="request-count" style="font-weight: bold;">0</span>
-                    </div>
-                    <div style="margin-bottom: 8px; display: flex; justify-content: space-between;">
-                        <span style="color: #666;">成功:</span>
-                        <span id="success-count" style="font-weight: bold; color: #52c41a;">0</span>
-                    </div>
-                    <div style="margin-bottom: 8px; display: flex; justify-content: space-between;">
-                        <span style="color: #666;">失败:</span>
-                        <span id="failure-count" style="font-weight: bold; color: #ff4d4f;">0</span>
-                    </div>
-                    <div style="margin-bottom: 8px; display: flex; justify-content: space-between;">
-                        <span style="color: #666;">时长:</span>
-                        <span id="running-time" style="font-weight: bold;">0s</span>
-                    </div>
+                <div style="border-top:1px solid #eee;padding-top:10px;">
+                    <div>状态: <span id="status-text">初始化</span></div>
+                    <div>请求: <span id="request-count">0</span></div>
+                    <div>成功: <span id="success-count">0</span></div>
+                    <div>失败: <span id="failure-count">0</span></div>
+                    <div>时长: <span id="running-time">0s</span></div>
                 </div>
             `;
 
             document.body.appendChild(panel);
-            console.log('[Content] 面板已创建');
         }, 100);
     }
 
@@ -100,48 +88,43 @@ if (window.__ILABEL_SNIPER_RUNNING__) {
         const panel = document.getElementById('mini-sniper-panel');
         if (!panel) return;
 
-        const statusText = panel.querySelector('#status-text');
-        const requestCountEl = panel.querySelector('#request-count');
-        const successCountEl = panel.querySelector('#success-count');
-        const failureCountEl = panel.querySelector('#failure-count');
+        const s = panel.querySelector('#status-text');
+        const r = panel.querySelector('#request-count');
+        const sc = panel.querySelector('#success-count');
+        const f = panel.querySelector('#failure-count');
 
-        if (statusText) statusText.textContent = status;
-        if (requestCountEl) requestCountEl.textContent = requestCount;
-        if (successCountEl) successCountEl.textContent = successCount;
-        if (failureCountEl) failureCountEl.textContent = failureCount;
+        if (s) s.textContent = status;
+        if (r) r.textContent = requestCount;
+        if (sc) sc.textContent = successCount;
+        if (f) f.textContent = failureCount;
+    }
+
+    function formatTime(s) {
+        if (s < 60) return `${s}s`;
+        return `${Math.floor(s / 60)}m${s % 60}s`;
     }
 
     function updateRunningTime() {
         const panel = document.getElementById('mini-sniper-panel');
         if (!panel || !polling) return;
 
-        const pageKey = getPageKey();
-        chrome.storage.local.get([pageKey], (data) => {
-            const pageConfig = data[pageKey] || {};
-            if (pageConfig.startTime) {
-                const elapsed = Math.floor((Date.now() - pageConfig.startTime) / 1000);
-                const timeEl = panel.querySelector('#running-time');
-                if (timeEl) {
-                    timeEl.textContent = formatTime(elapsed);
-                }
+        chrome.storage.local.get([getPageKey()], (data) => {
+            const cfg = data[getPageKey()] || {};
+            if (cfg.startTime) {
+                const elapsed = Math.floor((Date.now() - cfg.startTime) / 1000);
+                const el = panel.querySelector('#running-time');
+                if (el) el.textContent = formatTime(elapsed);
             }
         });
     }
 
-    function formatTime(seconds) {
-        if (seconds < 60) return `${seconds}s`;
-        const m = Math.floor(seconds / 60);
-        const s = seconds % 60;
-        return `${m}m${s}s`;
-    }
-
     function saveStats() {
-        const pageKey = getPageKey();
-        chrome.storage.local.get([pageKey], (result) => {
-            const pageConfig = result[pageKey] || {};
+        const key = getPageKey();
+        chrome.storage.local.get([key], (res) => {
+            const cfg = res[key] || {};
             chrome.storage.local.set({
-                [pageKey]: {
-                    ...pageConfig,
+                [key]: {
+                    ...cfg,
                     requestCount,
                     successCount,
                     failureCount
@@ -151,80 +134,60 @@ if (window.__ILABEL_SNIPER_RUNNING__) {
     }
 
     function hasSubmitButton() {
-        return [...document.querySelectorAll('button')].some(btn => {
-            return btn.innerText.includes('提交');
-        });
+        return [...document.querySelectorAll('button')]
+            .some(b => b.innerText.includes('提交'));
     }
 
     function clickRefreshButton() {
         const now = Date.now();
-        if (now - lastRefreshClickAt < REFRESH_CLICK_INTERVAL) {
-            return false;
-        }
+        if (now - lastRefreshClickAt < REFRESH_CLICK_INTERVAL) return false;
 
-        const buttons = [...document.querySelectorAll('button')];
-        const refreshBtn = buttons.find(btn => btn.innerText && btn.innerText.trim() === '刷新');
-        if (!refreshBtn || refreshBtn.disabled) {
-            return false;
-        }
+        const btn = [...document.querySelectorAll('button')]
+            .find(b => b.innerText && b.innerText.trim() === '刷新');
+
+        if (!btn || btn.disabled) return false;
+
         lastRefreshClickAt = now;
-        refreshBtn.click();
-        console.log('[Content] 🔄 已点击页面刷新按钮');
+        btn.click();
+        console.log('[Content] 🔄 点击刷新');
         return true;
     }
 
     async function fetchTask() {
         try {
-            if (waitingRefreshAfterHit || answeringTask) {
-                return { gotTask: false, rateLimited: false };
-            }
+            if (waitingRefreshAfterHit || answeringTask) return { gotTask:false };
 
-            // 做题状态暂停抢题
             if (hasSubmitButton()) {
                 updatePanel('做题中');
-                return { gotTask: false, rateLimited: false };
+                return { gotTask:false };
             }
 
             requestCount++;
-            console.log('[Content] 📤 请求 #' + requestCount);
 
-            const pageKey = getPageKey();
-            const pageConfig = await new Promise((resolve) => {
-                chrome.storage.local.get([pageKey], (data) => {
-                    resolve(data[pageKey] || {});
-                });
+            const key = getPageKey();
+            const cfg = await new Promise(r =>
+                chrome.storage.local.get([key], d => r(d[key] || {}))
+            );
+
+            const missionId = cfg.missionId || currentMissionId;
+            const amount = cfg.amount || 3;
+
+            const url = `/api/hits/assigned?mid=${missionId}&amount=${amount}&_=${Date.now()}`;
+
+            const res = await fetch(url, {
+                method:'GET',
+                credentials:'include',
+                cache:'no-store'
             });
-
-            const missionId = pageConfig.missionId || currentMissionId;
-            const amount = pageConfig.amount || 3;
-
-            const apiUrl = `/api/hits/assigned?mid=${missionId}&amount=${amount}&_=${Date.now()}`;
-            console.log('[Content] 🔗 API:', apiUrl);
-
-            const res = await fetch(apiUrl, {
-                method: 'GET',
-                credentials: 'include',
-                cache: 'no-store',
-                headers: {
-                    'pragma': 'no-cache',
-                    'cache-control': 'no-cache'
-                }
-            });
-
-            console.log('[Content] 📊 状态:', res.status);
 
             const json = await res.json();
-            console.log('[Content] 📋 数据:', json);
 
             if (res.status === 429 || json?.status === 'error') {
-                const isRateLimited = res.status === 429 || `${json?.msg || ''}`.includes('ratelimit');
-                if (isRateLimited) {
-                    failureCount++;
-                    dynamicDelay = Math.min(Math.max(RATE_LIMIT_COOLDOWN, Math.floor(dynamicDelay * 1.35)), MAX_BACKOFF);
-                    updatePanel(`⏸️ 限流(${Math.ceil(dynamicDelay / 1000)}s)`);
-                    saveStats();
-                    return { gotTask: false, rateLimited: true };
-                }
+                failureCount++;
+                dynamicDelay = Math.min(Math.max(RATE_LIMIT_COOLDOWN, dynamicDelay * 1.35), MAX_BACKOFF);
+                updatePanel(`⏸️ 限流(${Math.ceil(dynamicDelay/1000)}s)`);
+                saveStats();
+                return { rateLimited:true };
             }
 
             dynamicDelay = Math.max(POLL_INTERVAL, dynamicDelay - 120);
@@ -237,81 +200,77 @@ if (window.__ILABEL_SNIPER_RUNNING__) {
                 if (task.id !== lastTaskId) {
                     lastTaskId = task.id;
                     successCount++;
-                    console.log('[Content] ✅ 成功! #' + successCount);
+
                     updatePanel('✅ 抢到题');
                     saveStats();
 
                     waitingRefreshAfterHit = true;
-
-                    return { gotTask: true, rateLimited: false };
+                    return { gotTask:true };
                 }
             }
 
             updatePanel('⏳ 等待中');
             saveStats();
-            return { gotTask: false, rateLimited: false };
+            return { gotTask:false };
 
         } catch (e) {
-            if (e.name !== 'AbortError') {
-                failureCount++;
-                dynamicDelay = Math.min(Math.floor(dynamicDelay * 1.2), MAX_BACKOFF);
-                console.error('[Content] 💥', e);
-                updatePanel('❌ 错误');
-                saveStats();
-            }
-            return { gotTask: false, rateLimited: false };
+            failureCount++;
+            dynamicDelay = Math.min(dynamicDelay * 1.2, MAX_BACKOFF);
+            updatePanel('❌ 错误');
+            saveStats();
+            return { gotTask:false };
         }
     }
 
     async function loop() {
-        console.log('[Content] 🎬 循环开始');
         let count = 0;
-        
+
         while (true) {
             count++;
-            const pageKey = getPageKey();
-            
-            const pageConfig = await new Promise((resolve) => {
-                chrome.storage.local.get([pageKey], (data) => {
-                    resolve(data[pageKey] || {});
-                });
-            });
 
-            polling = pageConfig.enabled || false;
+            const cfg = await new Promise(r =>
+                chrome.storage.local.get([getPageKey()], d => r(d[getPageKey()] || {}))
+            );
 
-            if (count % 50 === 0) {
-                console.log('[Content] 循环 #' + count + ', 启用:' + polling);
-            }
+            polling = cfg.enabled || false;
 
             if (polling) {
+
                 if (!manuallyStarted) {
                     updatePanel('⏸️ 待手动开启');
+
                 } else if (waitingRefreshAfterHit) {
+
                     if (clickRefreshButton()) {
-                        updatePanel('🔄 刷新题目中');
+                        updatePanel('🔄 刷新中');
                     } else {
-                        updatePanel('⏳ 等待刷新按钮');
+                        updatePanel('⏳ 等待刷新');
                     }
 
                     if (hasSubmitButton()) {
                         waitingRefreshAfterHit = false;
                         answeringTask = true;
-                        updatePanel('📝 题目已加载');
+                        updatePanel('📝 已进入题目');
                     }
+
                 } else if (answeringTask) {
+
                     if (hasSubmitButton()) {
                         updatePanel('做题中');
                     } else {
                         answeringTask = false;
                         updatePanel('▶️ 继续抢题');
                     }
+
                 } else {
-                    const result = await fetchTask();
+                    const r = await fetchTask();
                     updateRunningTime();
-                    if (!result.gotTask && !result.rateLimited) {
+
+                    if (!r.gotTask) {
                         updatePanel('▶️ 抢题中');
                     }
                 }
+
             } else {
                 dynamicDelay = POLL_INTERVAL;
                 waitingRefreshAfterHit = false;
@@ -325,46 +284,40 @@ if (window.__ILABEL_SNIPER_RUNNING__) {
     }
 
     function bindHotkey() {
-        document.addEventListener('keydown', (e) => {
+        document.addEventListener('keydown', e => {
             if (e.key.toLowerCase() === 'o') {
-                const panel = document.getElementById('mini-sniper-panel');
-                if (!panel) return;
+                const p = document.getElementById('mini-sniper-panel');
+                if (!p) return;
                 hidden = !hidden;
-                panel.style.display = hidden ? 'none' : 'block';
-                console.log('[Content] ⌨️', hidden ? '隐藏' : '显示');
+                p.style.display = hidden ? 'none' : 'block';
             }
         });
     }
 
-    chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-        console.log('[Content] 📨', message);
-        if (message.type === 'TOGGLE_STATE') {
-            polling = message.enabled;
-            manuallyStarted = message.enabled;
-            if (!message.enabled) {
+    chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+        if (msg.type === 'TOGGLE_STATE') {
+            polling = msg.enabled;
+            manuallyStarted = msg.enabled;
+
+            if (!msg.enabled) {
                 waitingRefreshAfterHit = false;
                 answeringTask = false;
             }
+
             updatePanel(polling ? '▶️ 抢题中' : '⏹️ 已停止');
-            sendResponse({ success: true });
+            sendResponse({ success:true });
         }
     });
 
-    // 初始化
     console.log('[Content] 🔧 初始化');
     createPanel();
     bindHotkey();
 
-    const pageKey = getPageKey();
-    chrome.storage.local.get([pageKey], (result) => {
-        const pageConfig = result[pageKey] || {};
-        polling = false;
-        manuallyStarted = false;
-        requestCount = pageConfig.requestCount || 0;
-        successCount = pageConfig.successCount || 0;
-        failureCount = pageConfig.failureCount || 0;
-
-        console.log('[Content] 📋', { polling, requestCount, successCount, failureCount });
+    chrome.storage.local.get([getPageKey()], res => {
+        const cfg = res[getPageKey()] || {};
+        requestCount = cfg.requestCount || 0;
+        successCount = cfg.successCount || 0;
+        failureCount = cfg.failureCount || 0;
 
         updatePanel('⏸️ 待手动开启');
         loop();
