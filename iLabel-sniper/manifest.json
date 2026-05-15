@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "咕咕嘎嘎助手",
+  "version": "3.2",
+  "description": "咕咕嘎嘎高速后台抢题",
+
+  "permissions": [
+    "storage",
+    "tabs",
+    "scripting"
+  ],
+
+  "host_permissions": [
+    "https://ilabel.weixin.qq.com/*"
+  ],
+
+"action": {
+  "default_popup": "popup.html",
+  "default_icon": {
+    "128": "icon.png"
+   }
+},
+
+  "background": {
+    "service_worker": "background.js"
+  }
+}

@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            width: 350px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #fafafa;
+            color: #333;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 16px;
+            font-size: 18px;
+            font-weight: bold;
+            text-align: center;
+        }
+ 
+.disclaimer {
+    margin-top: 9px;
+    font-size: 9px;
+    color: #999;
+    line-height: 1.5;
+    text-align: center;
+}
+
+        .container {
+            padding: 16px;
+        }
+
+        .form-group {
+            margin-bottom: 16px;
+        }
+
+        label {
+            display: block;
+            font-size: 12px;
+            font-weight: 600;
+            color: #666;
+            margin-bottom: 6px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        input {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid #d9d9d9;
+            border-radius: 4px;
+            font-size: 14px;
+            transition: all 0.3s ease;
+        }
+
+        input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.1);
+        }
+
+        .button-group {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 16px;
+            flex-wrap: wrap;
+        }
+
+        button {
+            flex: 1;
+            min-width: 100px;
+            padding: 10px 12px;
+            border: none;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        #save {
+            background: #1890ff;
+            color: white;
+        }
+
+        #save:hover:not(:disabled) {
+            background: #0050b3;
+            box-shadow: 0 2px 8px rgba(0, 80, 179, 0.3);
+        }
+
+        #save:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        #toggle {
+            font-size: 13px;
+            font-weight: bold;
+        }
+
+        #toggle.enabled {
+            background: #52c41a;
+            color: white;
+        }
+
+        #toggle.enabled:hover:not(:disabled) {
+            background: #389e0d;
+            box-shadow: 0 2px 8px rgba(56, 158, 13, 0.3);
+        }
+
+        #toggle.disabled {
+            background: #f5f5f5;
+            color: #999;
+            border: 1px solid #d9d9d9;
+        }
+
+        #toggle.disabled:hover:not(:disabled) {
+            background: #efefef;
+        }
+
+        #reset {
+            background: #ff7875;
+            color: white;
+            font-size: 12px;
+        }
+
+        #reset:hover:not(:disabled) {
+            background: #cf1322;
+            box-shadow: 0 2px 8px rgba(207, 19, 34, 0.3);
+        }
+
+        #reset:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        #stats {
+            background: white;
+            border: 1px solid #f0f0f0;
+            border-radius: 4px;
+            padding: 12px;
+            margin-bottom: 16px;
+            font-size: 12px;
+        }
+
+        #stats div {
+            display: flex;
+            justify-content: space-between;
+            padding: 6px 0;
+            border-bottom: 1px solid #f5f5f5;
+        }
+
+        #stats div:last-child {
+            border-bottom: none;
+        }
+
+        #stats span:first-child {
+            color: #999;
+        }
+
+        #stats strong {
+            color: #333;
+            font-weight: 600;
+        }
+
+        .divider {
+            height: 1px;
+            background: #f0f0f0;
+            margin: 12px 0;
+        }
+
+        .tips {
+            background: #e6f7ff;
+            border-left: 3px solid #1890ff;
+            padding: 12px;
+            border-radius: 4px;
+            font-size: 11px;
+            color: #0050b3;
+            line-height: 1.6;
+          text-align: center;
+        }
+
+        .alert {
+            background: #fff7e6;
+            border: 1px solid #ffe58f;
+            border-radius: 4px;
+            padding: 10px;
+            margin-bottom: 12px;
+            font-size: 12px;
+            color: #ad6800;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">🎯 咕咕嘎嘎抢题助手</div>
+    
+    <div class="container">
+        <div id="alert" class="alert" style="display: none;"></div>
+
+        <div class="form-group">
+            <label for="mission">队列 ID</label>
+            <input type="number" id="mission" placeholder="自动识别">
+        </div>
+
+        <div class="form-group">
+            <label for="amount">任务数量</label>
+            <input type="number" id="amount" value="3" min="1">
+        </div>
+
+        <div class="button-group">
+            <button id="save">保存配置</button>
+            <button id="toggle" class="disabled">未开启</button>
+            <button id="reset">重置</button>
+        </div>
+
+        <div id="stats">
+            <div>
+                <span>📊 请求:</span>
+                <strong id="stat-request">0</strong>
+            </div>
+            <div>
+                <span>✅ 成功:</span>
+                <strong id="stat-success" style="color: #52c41a;">0</strong>
+            </div>
+            <div>
+                <span>❌ 失败:</span>
+                <strong id="stat-failure" style="color: #ff4d4f;">0</strong>
+            </div>
+            <div>
+                <span>⏱️ 时长:</span>
+                <strong id="stat-time">0s</strong>
+            </div>
+        </div>
+
+        <div class="divider"></div>
+
+        <div class="tips">
+            <strong>⚙️ 插件原理与功能说明：</strong><br>
+             • 基于前端接口请求与数据轮询机制获取任务数据<br>
+            • 通过异步请求周期性同步服务器状态信息<br>
+            • 支持快捷键控制界面显示与隐藏（O键）<br>
+            • 通过降低请求间隔实现更高频的数据更新响应
+        </div>
+      <div class="disclaimer">
+     本插件仅供学习、技术研究与测试用途。<br>
+    请遵守当地法律法规，不得用于非法或商业用途。<br>
+    使用产生的任何后果由使用者自行承担。<br>
+    插件不保证其合法性、准确性或完整性。
+</div>
+    </div>
+
+    <script src="popup.js"></script>
+</body>
+</html>

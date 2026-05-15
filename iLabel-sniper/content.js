@@ -1,0 +1,294 @@
+console.log('[Content] ✅ Content Script 已注入!');
+
+(function () {
+    let polling = false;
+    let hidden = false;
+    let lastTaskId = null;
+    let successCount = 0;
+    let requestCount = 0;
+    let failureCount = 0;
+    let abortController = null;
+
+    const POLL_INTERVAL = 150;
+
+    function extractMissionIdFromUrl() {
+        const match = window.location.href.match(/mission\/(\d+)/);
+        return match ? parseInt(match[1]) : null;
+    }
+
+    const currentMissionId = extractMissionIdFromUrl();
+    console.log('[Content] Mission ID:', currentMissionId);
+
+    if (!currentMissionId) {
+        console.error('[Content] 无法提取 Mission ID');
+        return;
+    }
+
+    function getPageKey() {
+        return `page_${currentMissionId}`;
+    }
+
+    function createPanel() {
+        setTimeout(() => {
+            if (document.getElementById('mini-sniper-panel')) {
+                return;
+            }
+
+            const panel = document.createElement('div');
+            panel.id = 'mini-sniper-panel';
+            panel.style.cssText = `
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                width: 260px;
+                background: white;
+                border-radius: 8px;
+                box-shadow: 0 2px 12px rgba(0,0,0,0.15);
+                padding: 16px;
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                z-index: 999999;
+                font-size: 12px;
+                color: #333;
+            `;
+
+            panel.innerHTML = `
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                    <strong style="font-size: 14px;">iLabel Sniper</strong>
+                    <span style="font-size: 10px; color: #999;">O键切换</span>
+                </div>
+                <div style="border-top: 1px solid #f0f0f0; padding-top: 12px;">
+                    <div style="margin-bottom: 8px; display: flex; justify-content: space-between;">
+                        <span style="color: #666;">状态:</span>
+                        <span id="status-text" style="font-weight: bold; color: #1890ff;">初始化</span>
+                    </div>
+                    <div style="margin-bottom: 8px; display: flex; justify-content: space-between;">
+                        <span style="color: #666;">请求:</span>
+                        <span id="request-count" style="font-weight: bold;">0</span>
+                    </div>
+                    <div style="margin-bottom: 8px; display: flex; justify-content: space-between;">
+                        <span style="color: #666;">成功:</span>
+                        <span id="success-count" style="font-weight: bold; color: #52c41a;">0</span>
+                    </div>
+                    <div style="margin-bottom: 8px; display: flex; justify-content: space-between;">
+                        <span style="color: #666;">失败:</span>
+                        <span id="failure-count" style="font-weight: bold; color: #ff4d4f;">0</span>
+                    </div>
+                    <div style="margin-bottom: 8px; display: flex; justify-content: space-between;">
+                        <span style="color: #666;">时长:</span>
+                        <span id="running-time" style="font-weight: bold;">0s</span>
+                    </div>
+                </div>
+            `;
+
+            document.body.appendChild(panel);
+            console.log('[Content] 面板已创建');
+        }, 100);
+    }
+
+    function updatePanel(status) {
+        const panel = document.getElementById('mini-sniper-panel');
+        if (!panel) return;
+
+        const statusText = panel.querySelector('#status-text');
+        const requestCountEl = panel.querySelector('#request-count');
+        const successCountEl = panel.querySelector('#success-count');
+        const failureCountEl = panel.querySelector('#failure-count');
+
+        if (statusText) statusText.textContent = status;
+        if (requestCountEl) requestCountEl.textContent = requestCount;
+        if (successCountEl) successCountEl.textContent = successCount;
+        if (failureCountEl) failureCountEl.textContent = failureCount;
+    }
+
+    function updateRunningTime() {
+        const panel = document.getElementById('mini-sniper-panel');
+        if (!panel || !polling) return;
+
+        const pageKey = getPageKey();
+        chrome.storage.local.get([pageKey], (data) => {
+            const pageConfig = data[pageKey] || {};
+            if (pageConfig.startTime) {
+                const elapsed = Math.floor((Date.now() - pageConfig.startTime) / 1000);
+                const timeEl = panel.querySelector('#running-time');
+                if (timeEl) {
+                    timeEl.textContent = formatTime(elapsed);
+                }
+            }
+        });
+    }
+
+    function formatTime(seconds) {
+        if (seconds < 60) return `${seconds}s`;
+        const m = Math.floor(seconds / 60);
+        const s = seconds % 60;
+        return `${m}m${s}s`;
+    }
+
+    function saveStats() {
+        const pageKey = getPageKey();
+        chrome.storage.local.get([pageKey], (result) => {
+            const pageConfig = result[pageKey] || {};
+            chrome.storage.local.set({
+                [pageKey]: {
+                    ...pageConfig,
+                    requestCount,
+                    successCount,
+                    failureCount
+                }
+            });
+        });
+    }
+
+    function hasSubmitButton() {
+        return [...document.querySelectorAll('button')].some(btn => {
+            return btn.innerText.includes('提交');
+        });
+    }
+
+    async function fetchTask() {
+        try {
+            // 做题状态暂停抢题
+            if (hasSubmitButton()) {
+                updatePanel('做题中');
+                return;
+            }
+
+            if (abortController) {
+                abortController.abort();
+            }
+
+            abortController = new AbortController();
+
+            requestCount++;
+            console.log('[Content] 📤 请求 #' + requestCount);
+
+            const pageKey = getPageKey();
+            const pageConfig = await new Promise((resolve) => {
+                chrome.storage.local.get([pageKey], (data) => {
+                    resolve(data[pageKey] || {});
+                });
+            });
+
+            const missionId = pageConfig.missionId || currentMissionId;
+            const amount = pageConfig.amount || 3;
+
+            const apiUrl = `/api/hits/assigned?mid=${missionId}&amount=${amount}&_=${Date.now()}`;
+            console.log('[Content] 🔗 API:', apiUrl);
+
+            const res = await fetch(apiUrl, {
+                method: 'GET',
+                credentials: 'include',
+                cache: 'no-store',
+                signal: abortController.signal,
+                headers: {
+                    'pragma': 'no-cache',
+                    'cache-control': 'no-cache'
+                }
+            });
+
+            console.log('[Content] 📊 状态:', res.status);
+
+            const json = await res.json();
+            console.log('[Content] 📋 数据:', json);
+
+            const list = json?.data || [];
+
+            if (list.length > 0) {
+                const task = list[0];
+
+                if (task.id !== lastTaskId) {
+                    lastTaskId = task.id;
+                    successCount++;
+                    console.log('[Content] ✅ 成功! #' + successCount);
+                    updatePanel('✅ 抢到题');
+                    saveStats();
+                    return;
+                }
+            }
+
+            updatePanel('⏳ 等待中');
+            saveStats();
+
+        } catch (e) {
+            if (e.name !== 'AbortError') {
+                failureCount++;
+                console.error('[Content] 💥', e);
+                updatePanel('❌ 错误');
+                saveStats();
+            }
+        }
+    }
+
+    async function loop() {
+        console.log('[Content] 🎬 循环开始');
+        let count = 0;
+        
+        while (true) {
+            count++;
+            const pageKey = getPageKey();
+            
+            const pageConfig = await new Promise((resolve) => {
+                chrome.storage.local.get([pageKey], (data) => {
+                    resolve(data[pageKey] || {});
+                });
+            });
+
+            polling = pageConfig.enabled || false;
+
+            if (count % 50 === 0) {
+                console.log('[Content] 循环 #' + count + ', 启用:' + polling);
+            }
+
+            if (polling) {
+                await fetchTask();
+                updateRunningTime();
+                updatePanel('▶️ 抢题中');
+            } else {
+                updatePanel('⏹️ 已停止');
+            }
+
+            await new Promise(r => setTimeout(r, POLL_INTERVAL));
+        }
+    }
+
+    function bindHotkey() {
+        document.addEventListener('keydown', (e) => {
+            if (e.key.toLowerCase() === 'o') {
+                const panel = document.getElementById('mini-sniper-panel');
+                if (!panel) return;
+                hidden = !hidden;
+                panel.style.display = hidden ? 'none' : 'block';
+                console.log('[Content] ⌨️', hidden ? '隐藏' : '显示');
+            }
+        });
+    }
+
+    chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+        console.log('[Content] 📨', message);
+        if (message.type === 'TOGGLE_STATE') {
+            polling = message.enabled;
+            updatePanel(polling ? '▶️ 抢题中' : '⏹️ 已停止');
+            sendResponse({ success: true });
+        }
+    });
+
+    // 初始化
+    console.log('[Content] 🔧 初始化');
+    createPanel();
+    bindHotkey();
+
+    const pageKey = getPageKey();
+    chrome.storage.local.get([pageKey], (result) => {
+        const pageConfig = result[pageKey] || {};
+        polling = pageConfig.enabled || false;
+        requestCount = pageConfig.requestCount || 0;
+        successCount = pageConfig.successCount || 0;
+        failureCount = pageConfig.failureCount || 0;
+
+        console.log('[Content] 📋', { polling, requestCount, successCount, failureCount });
+
+        updatePanel(polling ? '▶️ 抢题中' : '⏹️ 已停止');
+        loop();
+    });
+
+})();
